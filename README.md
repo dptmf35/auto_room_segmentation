@@ -19,4 +19,4 @@ input map:
 ![input image](./skku7th.pgm)
 
 output map:
-![output image](./output.png)
+![output image](./output_map.png)
