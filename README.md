@@ -15,13 +15,13 @@ $ python run_auto_seg.py --img_path <input_image_path> --n_segments <number_of_s
 ```
 
 
-input map:
+- input map:
 ![input image](./input_map.png)
 
-output map:
+- output map:
 ![output image](./output_map.png)
 
-output centroids:
+- output centroids:
 `./centroids.json`
 ```
 "roomX": {
