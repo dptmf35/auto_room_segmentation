@@ -16,7 +16,16 @@ $ python run_auto_seg.py --img_path <input_image_path> --n_segments <number_of_s
 
 
 input map:
-![input image](./skku7th.pgm)
+![input image](./input_map.png)
 
 output map:
 ![output image](./output_map.png)
+
+output centroids:
+`./centroids.json`
+```
+"roomX": {
+        "x": 785.0,
+        "y": 40.0
+    },
+```
