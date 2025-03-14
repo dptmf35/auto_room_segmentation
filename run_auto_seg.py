@@ -1,17 +1,20 @@
 import numpy as np
 import cv2
 import argparse
+import json  # JSON 처리를 위한 모듈 추가
 
 class RoomSegmentation:
-    def __init__(self, img_path, n_segments=50, min_area=500, output_file="output_map.png"):
+    def __init__(self, img_path, n_segments=50, min_area=500, output_file="output_map.png", json_output="centroids.json"):
         self.img_path = img_path
         self.n_segments = n_segments
         self.min_area = min_area
         self.output_file = output_file
+        self.json_output = json_output  
         self.img = cv2.imread(img_path)
         if self.img is None:
             raise FileNotFoundError(f"cannot find image file: {img_path}")
         
+        # 결과 저장용 변수들
         self.labels = None
         self.mask = None
         self.polygon_list_map = []
@@ -77,8 +80,9 @@ class RoomSegmentation:
                 
                 for contour in contours:
                     area = cv2.contourArea(contour)
+                     # ignore small segments
                     if area < self.min_area:
-                        continue  # ignore small segments
+                        continue 
                     
                     contour_map_coords = []
                     for point in contour:
@@ -87,12 +91,43 @@ class RoomSegmentation:
                     
                     self.polygon_list_map.append(contour_map_coords)
                     
-                    # calculate centroid
-                    M = cv2.moments(contour)
-                    if M["m00"] != 0:
-                        centroid_x = int(M["m10"] / M["m00"])
-                        centroid_y = int(M["m01"] / M["m00"])
-                        self.centroid_list.append([centroid_x, centroid_y])
+                    # improve centroid calculation - use distance transform based method
+                    mask_contour = np.zeros_like(mask_seg_uint8)
+                    cv2.drawContours(mask_contour, [contour], 0, 255, -1)
+                    
+                    # apply distance transform    
+                    dist_transform = cv2.distanceTransform(mask_contour, cv2.DIST_L2, 5)
+                    _, max_val, _, max_loc = cv2.minMaxLoc(dist_transform)
+                    
+                    # use the maximum distance point as the centroid
+                    centroid_x, centroid_y = max_loc
+                    
+                    # check if the centroid is inside the polygon
+                    if cv2.pointPolygonTest(contour, (centroid_x, centroid_y), False) < 0:
+                        # if the centroid is not inside the polygon, calculate using the moment method
+                        M = cv2.moments(contour)
+                        if M["m00"] != 0:
+                            centroid_x = int(M["m10"] / M["m00"])
+                            centroid_y = int(M["m01"] / M["m00"])
+                            
+                        # if the centroid is still not inside the polygon, find a random point inside the polygon
+                        if cv2.pointPolygonTest(contour, (centroid_x, centroid_y), False) < 0:
+                                # sample a point inside the polygon
+                                x, y, w, h = cv2.boundingRect(contour)
+                                found = False
+                                for _ in range(100):  # try up to 100 times
+                                    sample_x = np.random.randint(x, x + w)
+                                    sample_y = np.random.randint(y, y + h)
+                                    if cv2.pointPolygonTest(contour, (sample_x, sample_y), False) >= 0:
+                                        centroid_x, centroid_y = sample_x, sample_y
+                                        found = True
+                                        break
+                                
+                                # if still not found, use the first point of the polygon
+                                if not found:
+                                    centroid_x, centroid_y = contour[0][0]
+                    
+                    self.centroid_list.append([centroid_x, centroid_y])
         
         return self.polygon_list_map, self.centroid_list
     
@@ -116,6 +151,19 @@ class RoomSegmentation:
         cv2.imwrite(self.output_file, img)
         print(f"result image saved: {self.output_file}")
     
+    def save_centroids_to_json(self):
+        """save centroids to JSON file"""
+        room_data = {}
+        
+        for i, centroid in enumerate(self.centroid_list):
+            room_name = f"room{i+1}"
+            room_data[room_name] = {"x": float(centroid[0]), "y": float(centroid[1])}
+        
+        with open(self.json_output, 'w') as json_file:
+            json.dump(room_data, json_file, indent=4)
+        
+        print(f"centroids data saved to JSON file: {self.json_output}")
+    
     def run(self):
         """run entire process"""
         # preprocess image
@@ -137,6 +185,9 @@ class RoomSegmentation:
         # save result
         self.save_result(final_img)
         
+        # save centroids to JSON
+        self.save_centroids_to_json()
+        
         # show step-by-step images in OpenCV window
         top_row = np.hstack((self.img, img_contours))  
         bottom_row = np.hstack((img_colored, final_img))  
@@ -148,11 +199,12 @@ class RoomSegmentation:
     
 
 def main():
-    parser = argparse.ArgumentParser(description="auto room segmentation")
+    parser = argparse.ArgumentParser(description="automatic room segmentation")
     parser.add_argument("--img_path", type=str, required=True, help="input PGM file path")
     parser.add_argument("--n_segments", type=int, default=80, help="number of segments")
     parser.add_argument("--min_area", type=int, default=500, help="minimum segment area")
-    parser.add_argument("--output", type=str, default="output.png", help="output file name")
+    parser.add_argument("--output", type=str, default="output_map.png", help="output image file name")
+    parser.add_argument("--json_output", type=str, default="centroids.json", help="centroids JSON output file name")
     
     args = parser.parse_args()
     
@@ -160,7 +212,8 @@ def main():
         img_path=args.img_path,
         n_segments=args.n_segments,
         min_area=args.min_area,
-        output_file=args.output
+        output_file=args.output,
+        json_output=args.json_output
     )
     
     segmentation.run()
