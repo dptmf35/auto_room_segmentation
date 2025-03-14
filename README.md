@@ -16,11 +16,13 @@ $ python run_auto_seg.py --img_path <input_image_path> --n_segments <number_of_s
 
 
 - input map:
-<p></p>
+
+
 ![input image](./input_map.png)
 
 - output map:
-<p></p>
+
+
 ![output image](./output_map.png)
 
 - output centroids:
