@@ -1,10 +1,10 @@
 import numpy as np
 import cv2
 import argparse
-import json  # JSON 처리를 위한 모듈 추가
+import json 
 
 class RoomSegmentation:
-    def __init__(self, img_path, n_segments=50, min_area=500, output_file="output_map.png", json_output="centroids.json"):
+    def __init__(self, img_path, n_segments=80, min_area=500, output_file="output_map.png", json_output="centroids.json"):
         self.img_path = img_path
         self.n_segments = n_segments
         self.min_area = min_area
@@ -14,7 +14,7 @@ class RoomSegmentation:
         if self.img is None:
             raise FileNotFoundError(f"cannot find image file: {img_path}")
         
-        # 결과 저장용 변수들
+        # variables for saving results
         self.labels = None
         self.mask = None
         self.polygon_list_map = []
@@ -22,7 +22,11 @@ class RoomSegmentation:
     
     def preprocess_image(self):
         """preprocess image"""
-        self.img[self.img >= 250] = 255
+        self.img[self.img >= 250] = 0
+        image_bit = cv2.bitwise_not(self.img)
+        kernel = np.ones((3, 3), np.uint8)
+        open_img = cv2.morphologyEx(image_bit, cv2.MORPH_OPEN, kernel, iterations=1)
+        self.img = open_img
         return self.img
     
     def apply_slic(self):
@@ -80,9 +84,8 @@ class RoomSegmentation:
                 
                 for contour in contours:
                     area = cv2.contourArea(contour)
-                     # ignore small segments
                     if area < self.min_area:
-                        continue 
+                        continue  # ignore small segments
                     
                     contour_map_coords = []
                     for point in contour:
@@ -91,27 +94,27 @@ class RoomSegmentation:
                     
                     self.polygon_list_map.append(contour_map_coords)
                     
-                    # improve centroid calculation - use distance transform based method
-                    mask_contour = np.zeros_like(mask_seg_uint8)
-                    cv2.drawContours(mask_contour, [contour], 0, 255, -1)
-                    
-                    # apply distance transform    
-                    dist_transform = cv2.distanceTransform(mask_contour, cv2.DIST_L2, 5)
-                    _, max_val, _, max_loc = cv2.minMaxLoc(dist_transform)
-                    
-                    # use the maximum distance point as the centroid
-                    centroid_x, centroid_y = max_loc
-                    
-                    # check if the centroid is inside the polygon
-                    if cv2.pointPolygonTest(contour, (centroid_x, centroid_y), False) < 0:
-                        # if the centroid is not inside the polygon, calculate using the moment method
-                        M = cv2.moments(contour)
-                        if M["m00"] != 0:
-                            centroid_x = int(M["m10"] / M["m00"])
-                            centroid_y = int(M["m01"] / M["m00"])
-                            
-                        # if the centroid is still not inside the polygon, find a random point inside the polygon
+                    # first try moment method to calculate centroid
+                    M = cv2.moments(contour)
+                    if M["m00"] != 0:
+                        centroid_x = int(M["m10"] / M["m00"])
+                        centroid_y = int(M["m01"] / M["m00"])
+                        
+                        # if centroid is outside the polygon, use distance transform method
                         if cv2.pointPolygonTest(contour, (centroid_x, centroid_y), False) < 0:
+                            # use distance transform method
+                            mask_contour = np.zeros_like(mask_seg_uint8)
+                            cv2.drawContours(mask_contour, [contour], 0, 255, -1)
+                            
+                            # apply distance transform
+                            dist_transform = cv2.distanceTransform(mask_contour, cv2.DIST_L2, 5)
+                            _, max_val, _, max_loc = cv2.minMaxLoc(dist_transform)
+                            
+                            # use the point with the maximum distance as centroid
+                            centroid_x, centroid_y = max_loc
+                            
+                            # if still outside, find a random point inside the polygon
+                            if cv2.pointPolygonTest(contour, (centroid_x, centroid_y), False) < 0:
                                 # sample a point inside the polygon
                                 x, y, w, h = cv2.boundingRect(contour)
                                 found = False
@@ -126,6 +129,9 @@ class RoomSegmentation:
                                 # if still not found, use the first point of the polygon
                                 if not found:
                                     centroid_x, centroid_y = contour[0][0]
+                    else:
+                        # if moment is 0 (rare case) use the first point of the polygon
+                        centroid_x, centroid_y = contour[0][0]
                     
                     self.centroid_list.append([centroid_x, centroid_y])
         
